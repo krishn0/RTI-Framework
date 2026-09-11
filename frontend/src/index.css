@@ -1,0 +1,25 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; font-family: 'DM Sans', sans-serif; background:#08100e; color:#e7eee9; }
+* { box-sizing: border-box; }
+body { margin:0; min-width:320px; min-height:100vh; background:
+  radial-gradient(circle at 80% -10%, rgba(42,120,85,.13), transparent 35%), #08100e; }
+button,input,select { font:inherit; }
+button { cursor:pointer; }
+::-webkit-scrollbar { width:7px; height:7px; }
+::-webkit-scrollbar-thumb { background:#2a3b35; border-radius:10px; }
+
+@layer components {
+  .panel { @apply rounded-xl border border-white/[.07] bg-[#0d1714]/90 shadow-[0_12px_50px_rgba(0,0,0,.16)]; }
+  .label { @apply text-[10px] font-semibold uppercase tracking-[.18em] text-[#71817a]; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[.045] px-3.5 py-2 text-xs font-semibold text-[#cbd7d0] transition hover:border-[#56c88d]/40 hover:bg-[#56c88d]/10 hover:text-white disabled:opacity-50; }
+  .btn-primary { @apply border-[#56c88d]/30 bg-[#56c88d] text-[#07120f] hover:bg-[#6ed69f] hover:text-[#07120f]; }
+  .input { @apply rounded-lg border border-white/[.08] bg-[#09120f] px-3 py-2.5 text-sm text-[#e6eee9] outline-none placeholder:text-[#56645e] focus:border-[#56c88d]/50; }
+  .badge { @apply inline-flex items-center gap-1.5 rounded-full border border-white/[.08] bg-white/[.035] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#a8b6af]; }
+  .table-row { @apply border-t border-white/[.055] transition hover:bg-white/[.025]; }
+  .public-primary { @apply items-center gap-2 rounded-lg bg-[#175cd3] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#124cae]; }
+  .public-secondary { @apply inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-blue-300; }
+}

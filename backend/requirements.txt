@@ -1,0 +1,12 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.52
+psycopg[binary]==3.3.5
+pydantic-settings==2.7.1
+httpx==0.28.1
+beautifulsoup4==4.12.3
+PyMuPDF==1.25.1
+playwright==1.62.0
+youtube-transcript-api==1.2.4
+python-dateutil==2.9.0.post0
+APScheduler==3.11.0
