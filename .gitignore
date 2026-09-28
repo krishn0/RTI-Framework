@@ -14,3 +14,4 @@ storage/*
 backend/storage/*
 !backend/storage/.gitkeep
 .env
+RTI_Antigravity_MD_Pack/
