@@ -17,7 +17,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/maha_intel
       STORAGE_PATH: /data/storage
-      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000
     volumes:
       - content_data:/data/storage
     ports: ["8000:8000"]
@@ -33,4 +33,3 @@ services:
 volumes:
   postgres_data:
   content_data:
-

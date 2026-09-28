@@ -110,7 +110,52 @@ class UnifiedSearchTestCase(unittest.TestCase):
         self.assertEqual(top_result["type"], "news_article")
         self.assertGreater(top_result["score"], 40.0)
 
+    def test_typo_handling_road_constration(self):
+        parsed = parse_query("road constration Pune")
+        pub = parsed.public()
+        self.assertEqual(pub["location"], ["Pune"])
+        self.assertIn("road", pub["keywords"])
+        # Should recognize project/road/construction rather than failing on unknown typo
+        self.assertTrue(len(parsed.keyword_groups) > 0)
+        
+        item = models.ContentIndex(
+            title="Pune Ring Road Construction Tender",
+            department="Public Works Department",
+            district="Pune",
+            text="Tender invited for road construction and widening in Pune.",
+            source="PWD",
+            source_url="http://example.com/3",
+            content_type="government_document"
+        )
+        score, concepts = score_record(item, parsed)
+        self.assertTrue(concepts["location_hit"])
+        self.assertTrue(concepts["keyword_hit"])
+        self.assertGreater(score, 20.0)
+
+    def test_nh_road_and_highway_parsing(self):
+        parsed = parse_query("NH road work in Thane")
+        pub = parsed.public()
+        self.assertEqual(pub["location"], ["Thane"])
+        self.assertIn("road", pub["keywords"])
+        # NH should not be dropped by 2-letter filter
+        self.assertTrue(any("nh" in k.lower() or "road" in k.lower() for k in pub["keywords"] + pub["general_keywords"]))
+
+        item = models.ContentIndex(
+            title="NH-48 Highway Widening Work in Thane",
+            department="PWD",
+            district="Thane",
+            text="National Highway NH-48 four-lane widening approved by government.",
+            source="MahaGov",
+            source_url="http://example.com/4",
+            content_type="government_document"
+        )
+        score, concepts = score_record(item, parsed)
+        self.assertTrue(concepts["location_hit"])
+        self.assertTrue(concepts["keyword_hit"])
+        self.assertGreater(score, 20.0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

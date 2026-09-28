@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api } from './api'
-import { Home, PublicDocument, PublicLayout, PublicNews, PublicVideo, SearchPage } from './public'
+import { Home, InvestigationPage, PublicDocument, PublicLayout, PublicNews, PublicVideo, SearchPage } from './public'
 
 const nav = [
   [LayoutDashboard,'Dashboard','/admin'], [Globe2,'Sources','/admin/sources'], [Activity,'Scrapers','/admin/scrapers'],
@@ -42,11 +42,11 @@ function ErrorBox({text}){return <div className="panel m-6 flex items-center gap
 
 function Layout({children}) {
   const [open,setOpen]=useState(false), location=useLocation()
-  const current=nav.find(x=>x[2]==='/admin'?location.pathname==='/admin':location.pathname.startsWith(x[2]))?.[1]||'CoreScapper'
+  const current=nav.find(x=>x[2]==='/admin'?location.pathname==='/admin':location.pathname.startsWith(x[2]))?.[1]||'RTI Intelligence'
   return <div className="min-h-screen">
     <aside className={`fixed inset-y-0 left-0 z-40 w-[236px] border-r border-white/[.07] bg-[#09120f]/95 backdrop-blur-xl transition-transform lg:translate-x-0 ${open?'translate-x-0':'-translate-x-full'}`}>
       <div className="flex h-[76px] items-center justify-between border-b border-white/[.06] px-5">
-        <Link to="/admin" className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-lg bg-[#56c88d] text-[#07120f]"><Database size={19}/></div><div><div className="text-sm font-bold tracking-wide">CORESCAPPER</div><div className="text-[9px] uppercase tracking-[.2em] text-[#62726a]">Admin console</div></div></Link>
+        <Link to="/admin" className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-lg bg-[#56c88d] text-[#07120f]"><Database size={19}/></div><div><div className="text-sm font-bold tracking-wide">RTI INTELLIGENCE</div><div className="text-[9px] uppercase tracking-[.2em] text-[#62726a]">Admin console</div></div></Link>
         <button onClick={()=>setOpen(false)} className="lg:hidden"><X size={18}/></button>
       </div>
       <div className="px-3 py-5"><div className="label mb-3 px-3">Workspace</div>{nav.slice(0,7).map(([Icon,label,to])=><NavLink key={to} to={to} end={to==='/admin'} onClick={()=>setOpen(false)} className={({isActive})=>`mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition ${isActive?'bg-[#56c88d]/10 text-[#7ee0aa]':'text-[#82918a] hover:bg-white/[.035] hover:text-[#dce6e0]'}`}><Icon size={17}/><span>{label}</span>{label==='Logs'&&<span className="ml-auto rounded bg-red-400/10 px-1.5 text-[10px] text-red-300">1</span>}</NavLink>)}</div>
@@ -54,7 +54,7 @@ function Layout({children}) {
     </aside>
     {open&&<div onClick={()=>setOpen(false)} className="fixed inset-0 z-30 bg-black/60 lg:hidden"/>}
     <main className="lg:pl-[236px]">
-      <header className="sticky top-0 z-20 flex h-[76px] items-center justify-between border-b border-white/[.06] bg-[#08100e]/85 px-4 backdrop-blur-xl md:px-8"><div className="flex items-center gap-4"><button onClick={()=>setOpen(true)} className="lg:hidden"><Menu/></button><div><div className="text-lg font-semibold">{current}</div><div className="hidden text-[10px] text-[#63726b] sm:block">CoreScapper Public Information Observatory · by Krishna and team</div></div></div><div className="flex items-center gap-3"><Link to="/" className="hidden items-center gap-2 rounded-lg border border-white/[.07] bg-white/[.025] px-3 py-2 text-xs text-[#93a19a] md:flex"><ExternalLink size={14}/>Open public search</Link><button className="relative rounded-lg border border-white/[.07] p-2.5 text-[#85938c]"><Bell size={16}/><span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-red-400"/></button><div className="grid h-9 w-9 place-items-center rounded-full bg-[#263c33] text-xs font-bold text-[#8bd9ad]">AD</div></div></header>
+      <header className="sticky top-0 z-20 flex h-[76px] items-center justify-between border-b border-white/[.06] bg-[#08100e]/85 px-4 backdrop-blur-xl md:px-8"><div className="flex items-center gap-4"><button onClick={()=>setOpen(true)} className="lg:hidden"><Menu/></button><div><div className="text-lg font-semibold">{current}</div><div className="hidden text-[10px] text-[#63726b] sm:block">RTI Intelligence Observatory · by Krishna and team</div></div></div><div className="flex items-center gap-3"><Link to="/" className="hidden items-center gap-2 rounded-lg border border-white/[.07] bg-white/[.025] px-3 py-2 text-xs text-[#93a19a] md:flex"><ExternalLink size={14}/>Open public search</Link><button className="relative rounded-lg border border-white/[.07] p-2.5 text-[#85938c]"><Bell size={16}/><span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-red-400"/></button><div className="grid h-9 w-9 place-items-center rounded-full bg-[#263c33] text-xs font-bold text-[#8bd9ad]">AD</div></div></header>
       <div className="mx-auto max-w-[1500px] p-4 md:p-8">{children}</div>
     </main>
   </div>
@@ -157,4 +157,4 @@ function SettingsPage(){return <><PageHead eyebrow="Workspace" title="Platform s
 function AdminRoutes(){return <Routes><Route index element={<Dashboard/>}/><Route path="sources" element={<Sources/>}/><Route path="sources/add" element={<AddSource/>}/><Route path="documents" element={<Documents/>}/><Route path="documents/:id" element={<DocumentDetail/>}/><Route path="youtube" element={<YoutubeList/>}/><Route path="youtube/:id" element={<VideoDetail/>}/><Route path="news" element={<News/>}/><Route path="news/:id" element={<NewsDetail/>}/><Route path="scrapers" element={<Scrapers/>}/><Route path="scrapers/:id" element={<ScraperDetail/>}/><Route path="runs" element={<Scrapers/>}/><Route path="logs" element={<Logs/>}/><Route path="settings" element={<SettingsPage/>}/><Route path="*" element={<Navigate to="/admin"/>}/></Routes>}
 function LegacyScraperRedirect(){const {id}=useParams();return <Navigate to={`/admin/scrapers/${id}`} replace/>}
 
-export default function App(){return <Routes><Route element={<PublicLayout/>}><Route index element={<Home/>}/><Route path="search" element={<SearchPage/>}/><Route path="documents/:id" element={<PublicDocument/>}/><Route path="youtube/:id" element={<PublicVideo/>}/><Route path="news/:id" element={<PublicNews/>}/></Route><Route path="admin/*" element={<Layout><AdminRoutes/></Layout>}/><Route path="sources" element={<Navigate to="/admin/sources"/>}/><Route path="scrapers" element={<Navigate to="/admin/scrapers"/>}/><Route path="scrapers/:id" element={<LegacyScraperRedirect/>}/><Route path="logs" element={<Navigate to="/admin/logs"/>}/><Route path="*" element={<Navigate to="/"/>}/></Routes>}
+export default function App(){return <Routes><Route element={<PublicLayout/>}><Route index element={<Home/>}/><Route path="search" element={<SearchPage/>}/><Route path="investigate" element={<InvestigationPage/>}/><Route path="investigate/:id" element={<InvestigationPage/>}/><Route path="documents/:id" element={<PublicDocument/>}/><Route path="youtube/:id" element={<PublicVideo/>}/><Route path="news/:id" element={<PublicNews/>}/></Route><Route path="admin/*" element={<Layout><AdminRoutes/></Layout>}/><Route path="sources" element={<Navigate to="/admin/sources"/>}/><Route path="scrapers" element={<Navigate to="/admin/scrapers"/>}/><Route path="scrapers/:id" element={<LegacyScraperRedirect/>}/><Route path="logs" element={<Navigate to="/admin/logs"/>}/><Route path="*" element={<Navigate to="/"/>}/></Routes>}

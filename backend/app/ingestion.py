@@ -61,11 +61,13 @@ def extract_pdf(data: bytes) -> str:
 
 
 def extract_pdf_pages(data: bytes) -> list[str]:
-    with fitz.open(stream=data, filetype="pdf") as pdf:
-        return [normalize_marathi_pdf_text(page.get_text("text")) for page in pdf]
+    from .ocr import extract_pdf_pages_with_ocr
+    return extract_pdf_pages_with_ocr(data)
 
 
 def ingest_document(db: Session, *, source: models.Source, title: str, url: str, data: bytes, department=None, category=None, published_at=None):
+    from .ocr import extract_pdf_pages_with_ocr
+
     digest = sha256(data)
     doc = db.query(models.Document).filter_by(document_url=url).first()
     created = doc is None
@@ -82,14 +84,18 @@ def ingest_document(db: Session, *, source: models.Source, title: str, url: str,
     STORAGE_PATH.mkdir(parents=True, exist_ok=True)
     path = STORAGE_PATH / f"{doc.id}-{digest[:12]}.pdf"
     path.write_bytes(data)
-    with fitz.open(stream=data, filetype="pdf") as pdf:
-        raw_pages = [page.get_text("text") for page in pdf]
-    pages = [normalize_marathi_pdf_text(page) for page in raw_pages]
+    pages = extract_pdf_pages_with_ocr(data)
     text = "\n".join(pages)
-    version = models.DocumentVersion(document_id=doc.id, sha256=digest, file_size=len(data), mime_type="application/pdf", file_path=str(path), raw_extracted_text="\n".join(raw_pages), extracted_text=text, page_count=len(pages))
+    version = models.DocumentVersion(document_id=doc.id, sha256=digest, file_size=len(data), mime_type="application/pdf", file_path=str(path), raw_extracted_text=text, extracted_text=text, page_count=len(pages))
     db.add(version); db.flush()
     for number, page_text in enumerate(pages, 1):
         db.add(models.DocumentPage(version_id=version.id, page_number=number, text=page_text))
+    db.flush()
+    try:
+        from .rag import chunk_document_version
+        chunk_document_version(db, doc, version)
+    except Exception:
+        pass
     index_content(db, "government_document", doc.id, title, source.name, url, text, published_at, language=detect_language(text), source_id=source.id, department=department, district=detect_district(f"{title} {text[:5000]}"), document_type=doc.document_type)
     return doc, "created" if created else "versioned"
 
@@ -181,10 +187,10 @@ def ingest_youtube(db: Session, url: str, language="mr", source: models.Source |
 
 
 def ensure_video_segment_index(db: Session, video: models.YouTubeVideo) -> None:
-    """Index each real caption segment with contextual window; never synthesize unavailable captions."""
+    """Index each real caption segment with contextual window (±6 segments / ~30-50s); never synthesize unavailable captions."""
     segments = list(video.segments)
     for i, segment in enumerate(segments):
-        window = segments[max(0, i - 3): min(len(segments), i + 4)]
+        window = segments[max(0, i - 6): min(len(segments), i + 7)]
         context_text = " ".join(s.text for s in window)
         district = detect_district(f"{video.title} {context_text}")
         index_content(

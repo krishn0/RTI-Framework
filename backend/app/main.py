@@ -15,15 +15,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
-from . import models, schemas
+from . import agents, models, rag, schemas
 from .database import Base, SessionLocal, engine, get_db
 from .ingestion import backfill_youtube_segment_index, detect_district, detect_language, extract_date, ingest_youtube, repair_legacy_marathi_documents
 from .search import make_snippet, parse_query, score_record
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("corescapper")
-app = FastAPI(title="CoreScapper API", version="1.0.0")
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+app = FastAPI(title="RTI Intelligence API", version="1.0.0")
+cors_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
+).split(",")
 app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
@@ -52,6 +55,10 @@ def startup():
             indexed_segments = backfill_youtube_segment_index(db)
             if indexed_segments:
                 logger.info("Indexed %s timestamped YouTube transcript segments", indexed_segments)
+            from .rag import backfill_all_document_chunks
+            chunk_count = backfill_all_document_chunks(db)
+            if chunk_count:
+                logger.info("Generated %s semantic document chunks", chunk_count)
             active_run = db.query(models.ScraperRun).filter(models.ScraperRun.status.in_(("queued", "running"))).first()
             if not active_run:
                 for item in db.query(models.ContentIndex).all():
@@ -326,7 +333,13 @@ def search_documents(db: Session, parsed: ParsedQuery, candidate_terms: list[str
     if conds:
         q = q.filter(or_(*conds))
     q = apply_common_filters(q, filters)
-    return q.limit(2000).all()
+    results = q.limit(2000).all()
+    if len(results) < 20 and not filters:
+        # Fallback to recent documents for comprehensive scoring
+        recent = db.query(models.ContentIndex).filter(models.ContentIndex.content_type == "government_document").order_by(models.ContentIndex.created_at.desc()).limit(200).all()
+        seen = {r.id for r in results}
+        results = results + [r for r in recent if r.id not in seen]
+    return results
 
 
 def search_news(db: Session, parsed: ParsedQuery, candidate_terms: list[str], filters: dict) -> list[models.ContentIndex]:
@@ -335,7 +348,12 @@ def search_news(db: Session, parsed: ParsedQuery, candidate_terms: list[str], fi
     if conds:
         q = q.filter(or_(*conds))
     q = apply_common_filters(q, filters)
-    return q.limit(2000).all()
+    results = q.limit(2000).all()
+    if len(results) < 20 and not filters:
+        recent = db.query(models.ContentIndex).filter(models.ContentIndex.content_type == "news_article").order_by(models.ContentIndex.created_at.desc()).limit(200).all()
+        seen = {r.id for r in results}
+        results = results + [r for r in recent if r.id not in seen]
+    return results
 
 
 def search_youtube_transcripts(db: Session, parsed: ParsedQuery, candidate_terms: list[str], filters: dict) -> list[models.ContentIndex]:
@@ -344,15 +362,18 @@ def search_youtube_transcripts(db: Session, parsed: ParsedQuery, candidate_terms
     if conds:
         q = q.filter(or_(*conds))
     q = apply_common_filters(q, filters)
-    return q.limit(3000).all()
+    results = q.limit(3000).all()
+    if len(results) < 50 and not filters:
+        recent = db.query(models.ContentIndex).filter(models.ContentIndex.content_type == "youtube_transcript").order_by(models.ContentIndex.created_at.desc()).limit(300).all()
+        seen = {r.id for r in results}
+        results = results + [r for r in recent if r.id not in seen]
+    return results
 
 
 def rank_results(items: list[models.ContentIndex], parsed: ParsedQuery) -> list[tuple[float, models.ContentIndex]]:
     ranked = []
     for item in items:
         relevance, concepts = score_record(item, parsed)
-        if concepts["required_concepts"] > 1 and concepts["matched_concepts"] < concepts["required_concepts"]:
-            continue
         if relevance > 0:
             ranked.append((relevance, item))
     ranked.sort(
@@ -568,3 +589,160 @@ def logs(level: str | None = None, source_id: int | None = None, page: int = 1, 
     if level: query = query.filter(models.ScraperLog.level == level.upper())
     if source_id: query = query.filter(models.ScraperLog.source_id == source_id)
     return paginate(query, page, page_size)
+
+
+# ==========================================
+# RAG Evidence Retrieval Endpoints (Phase 2)
+# ==========================================
+
+@app.get("/api/retrieval/evidence-pack")
+def get_evidence_pack(
+    q: str = Query(..., min_length=1),
+    department: str | None = None,
+    document_id: int | None = None,
+    top_k: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db)
+):
+    from .rag import retrieve_hybrid_evidence
+    filters = {}
+    if department:
+        filters["department"] = department
+    if document_id:
+        filters["document_id"] = document_id
+    pack = retrieve_hybrid_evidence(db, query=q, filters=filters, top_k=top_k)
+    return pack.to_dict()
+
+
+# ==========================================
+# Multi-Agent Investigation & RTI Endpoints (Phase 3 & 4)
+# ==========================================
+
+@app.post("/api/investigations", response_model=schemas.InvestigationDetailOut, status_code=201)
+def trigger_investigation(payload: schemas.InvestigationCreate, db: Session = Depends(get_db)):
+    from .agents import run_investigation_pipeline
+    investigation = run_investigation_pipeline(db, query=payload.query, user_id=payload.user_id)
+    return investigation
+
+
+@app.get("/api/investigations")
+def list_investigations(page: int = 1, page_size: int = Query(20, le=50), db: Session = Depends(get_db)):
+    query = db.query(models.Investigation).order_by(models.Investigation.created_at.desc())
+    return paginate(query, page, page_size)
+
+
+@app.get("/api/investigations/{investigation_id}", response_model=schemas.InvestigationDetailOut)
+def get_investigation(investigation_id: int, db: Session = Depends(get_db)):
+    inv = db.query(models.Investigation).options(
+        selectinload(models.Investigation.steps),
+        selectinload(models.Investigation.claims).selectinload(models.EvidenceClaim.sources),
+        selectinload(models.Investigation.gaps),
+        selectinload(models.Investigation.contradictions),
+        selectinload(models.Investigation.rti_applications).selectinload(models.RTIApplication.questions),
+        selectinload(models.Investigation.project_events),
+        selectinload(models.Investigation.financial_events),
+    ).filter_by(id=investigation_id).first()
+    if not inv:
+        raise HTTPException(404, "Investigation not found")
+    return inv
+
+
+@app.get("/api/rti/{rti_id}", response_model=schemas.RTIApplicationOut)
+def get_rti_application(rti_id: int, db: Session = Depends(get_db)):
+    rti = db.query(models.RTIApplication).options(
+        selectinload(models.RTIApplication.questions),
+        selectinload(models.RTIApplication.responses).selectinload(models.RTIResponse.items),
+    ).filter_by(id=rti_id).first()
+    if not rti:
+        raise HTTPException(404, "RTI Application not found")
+    return rti
+
+
+# --- Intelligence Namespace Endpoints (RTI Antigravity Pack) ---
+
+@app.post("/api/intelligence/investigations", response_model=schemas.InvestigationDetailOut, status_code=201)
+def run_intelligence_investigation(req: schemas.InvestigationCreate, db: Session = Depends(get_db)):
+    return trigger_investigation(req, db)
+
+
+@app.get("/api/intelligence/investigations")
+def list_intelligence_investigations(page: int = 1, page_size: int = Query(20, le=50), db: Session = Depends(get_db)):
+    return list_investigations(page, page_size, db)
+
+
+@app.get("/api/intelligence/investigations/{investigation_id}", response_model=schemas.InvestigationDetailOut)
+def get_intelligence_investigation(investigation_id: int, db: Session = Depends(get_db)):
+    return get_investigation(investigation_id, db)
+
+
+@app.get("/api/intelligence/investigations/{investigation_id}/claims", response_model=list[schemas.EvidenceClaimOut])
+def get_investigation_claims(investigation_id: int, db: Session = Depends(get_db)):
+    claims = db.query(models.EvidenceClaim).options(
+        selectinload(models.EvidenceClaim.sources)
+    ).filter_by(investigation_id=investigation_id).all()
+    return claims
+
+
+@app.get("/api/intelligence/investigations/{investigation_id}/gaps", response_model=list[schemas.EvidenceGapOut])
+def get_investigation_gaps(investigation_id: int, db: Session = Depends(get_db)):
+    return db.query(models.EvidenceGap).filter_by(investigation_id=investigation_id).all()
+
+
+@app.get("/api/intelligence/investigations/{investigation_id}/contradictions", response_model=list[schemas.ContradictionOut])
+def get_investigation_contradictions(investigation_id: int, db: Session = Depends(get_db)):
+    return db.query(models.Contradiction).filter_by(investigation_id=investigation_id).all()
+
+
+@app.get("/api/intelligence/investigations/{investigation_id}/evidence", response_model=schemas.EvidencePackOut)
+def get_investigation_evidence(investigation_id: int, db: Session = Depends(get_db)):
+    inv = db.query(models.Investigation).filter_by(id=investigation_id).first()
+    if not inv:
+        raise HTTPException(404, "Investigation not found")
+    return rag.retrieve_hybrid_evidence(db, inv.query, top_k=15)
+
+
+@app.get("/api/intelligence/rti/{rti_id}", response_model=schemas.RTIApplicationOut)
+def get_intelligence_rti(rti_id: int, db: Session = Depends(get_db)):
+    return get_rti_application(rti_id, db)
+
+
+@app.post("/api/intelligence/rti/{rti_id}/response", response_model=schemas.RTIResponseOut)
+def submit_rti_response(rti_id: int, req: schemas.RTIResponseCreate, db: Session = Depends(get_db)):
+    processor = agents.RTIResponseProcessor()
+    try:
+        response_obj = processor.process_response(
+            db=db,
+            rti_application_id=rti_id,
+            raw_text=req.raw_text,
+            document_id=req.document_id,
+            received_date=req.received_date,
+        )
+        return response_obj
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.get("/api/intelligence/rti/{rti_id}/response-analysis")
+def analyze_rti_responses(rti_id: int, db: Session = Depends(get_db)):
+    rti = db.query(models.RTIApplication).options(
+        selectinload(models.RTIApplication.questions),
+        selectinload(models.RTIApplication.responses).selectinload(models.RTIResponse.items),
+    ).filter_by(id=rti_id).first()
+    if not rti:
+        raise HTTPException(404, "RTI Application not found")
+    
+    total_questions = len(rti.questions)
+    classifications = {}
+    for resp in rti.responses:
+        for item in resp.items:
+            classifications[item.classification] = classifications.get(item.classification, 0) + 1
+            
+    return {
+        "rti_application_id": rti.id,
+        "total_questions": total_questions,
+        "responses_count": len(rti.responses),
+        "classifications": classifications,
+        "status": rti.status,
+    }
+
+
+

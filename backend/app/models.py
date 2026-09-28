@@ -181,3 +181,192 @@ class ContentIndex(Base):
     timestamp_seconds: Mapped[float | None] = mapped_column(Float)
     text: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+# ==========================================
+# RTI Intelligence Layer Models (Phase 1)
+# ==========================================
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    __table_args__ = (UniqueConstraint("document_id", "document_version_id", "page_number", "chunk_index", name="uq_chunk_pos"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), index=True)
+    document_version_id: Mapped[int | None] = mapped_column(ForeignKey("document_versions.id"), index=True)
+    page_number: Mapped[int | None] = mapped_column(Integer, index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer, default=0)
+    text: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(20), default="mr")
+    token_count: Mapped[int] = mapped_column(Integer, default=0)
+    embedding_json: Mapped[str | None] = mapped_column(Text)  # Vector fallback for SQLite/Postgres
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class Investigation(Base):
+    __tablename__ = "investigations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    query: Mapped[str] = mapped_column(String(1000))
+    normalized_query: Mapped[str] = mapped_column(String(1000))
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)  # pending, planning, in_progress, completed, failed
+    user_id: Mapped[str | None] = mapped_column(String(100), index=True)
+    summary: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    steps: Mapped[list["InvestigationStep"]] = relationship(back_populates="investigation", cascade="all, delete-orphan", order_by="InvestigationStep.id")
+    claims: Mapped[list["EvidenceClaim"]] = relationship(back_populates="investigation", cascade="all, delete-orphan")
+    gaps: Mapped[list["EvidenceGap"]] = relationship(back_populates="investigation", cascade="all, delete-orphan")
+    contradictions: Mapped[list["Contradiction"]] = relationship(back_populates="investigation", cascade="all, delete-orphan")
+    rti_applications: Mapped[list["RTIApplication"]] = relationship(back_populates="investigation", cascade="all, delete-orphan")
+    project_events: Mapped[list["ProjectEvent"]] = relationship(back_populates="investigation", cascade="all, delete-orphan")
+    financial_events: Mapped[list["FinancialEvent"]] = relationship(back_populates="investigation", cascade="all, delete-orphan")
+
+
+class InvestigationStep(Base):
+    __tablename__ = "investigation_steps"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    investigation_id: Mapped[int] = mapped_column(ForeignKey("investigations.id"), index=True)
+    step_type: Mapped[str] = mapped_column(String(80), index=True)
+    agent_name: Mapped[str] = mapped_column(String(80), index=True)
+    status: Mapped[str] = mapped_column(String(40), default="queued", index=True)  # queued, running, completed, failed
+    input_json: Mapped[str | None] = mapped_column(Text)
+    output_json: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    investigation: Mapped["Investigation"] = relationship(back_populates="steps")
+
+
+class EvidenceClaim(Base):
+    __tablename__ = "evidence_claims"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    investigation_id: Mapped[int] = mapped_column(ForeignKey("investigations.id"), index=True)
+    subject_entity_type: Mapped[str] = mapped_column(String(80), index=True)
+    subject_entity_id: Mapped[str | None] = mapped_column(String(120), index=True)
+    subject_text: Mapped[str] = mapped_column(String(600))
+    predicate: Mapped[str] = mapped_column(String(120), index=True)
+    value_text: Mapped[str] = mapped_column(Text)
+    normalized_value_json: Mapped[str | None] = mapped_column(Text)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(40), default="PROPOSED", index=True)  # PROPOSED, SUPPORTED, VERIFIED, PARTIAL, CONTRADICTED, MISSING, STALE
+    confidence_label: Mapped[str] = mapped_column(String(40), default="MEDIUM")  # HIGH, MEDIUM, LOW
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    investigation: Mapped["Investigation"] = relationship(back_populates="claims")
+    sources: Mapped[list["ClaimSource"]] = relationship(back_populates="claim", cascade="all, delete-orphan")
+
+
+class ClaimSource(Base):
+    __tablename__ = "claim_sources"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    claim_id: Mapped[int] = mapped_column(ForeignKey("evidence_claims.id"), index=True)
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id"), index=True)
+    document_version_id: Mapped[int | None] = mapped_column(ForeignKey("document_versions.id"), index=True)
+    page_number: Mapped[int | None] = mapped_column(Integer)
+    timestamp_seconds: Mapped[float | None] = mapped_column(Float)
+    source_url: Mapped[str] = mapped_column(String(1200))
+    quoted_excerpt: Mapped[str] = mapped_column(Text)
+    retrieval_score: Mapped[float | None] = mapped_column(Float)
+    source_authority_score: Mapped[float | None] = mapped_column(Float)
+    claim: Mapped["EvidenceClaim"] = relationship(back_populates="sources")
+
+
+class EvidenceGap(Base):
+    __tablename__ = "evidence_gaps"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    investigation_id: Mapped[int] = mapped_column(ForeignKey("investigations.id"), index=True)
+    project_id: Mapped[str | None] = mapped_column(String(120), index=True)
+    gap_type: Mapped[str] = mapped_column(String(80), index=True)  # MISSING_COMPLETION_CERT, MISSING_EXPENDITURE, MISSING_WORK_ORDER, UNMATCHED_TENDER
+    expected_record_type: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(40), default="IDENTIFIED", index=True)  # IDENTIFIED, RTI_DRAFTED, RTI_SUBMITTED, RESOLVED, UNRESOLVED
+    responsible_authority_id: Mapped[str | None] = mapped_column(String(240))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    investigation: Mapped["Investigation"] = relationship(back_populates="gaps")
+
+
+class Contradiction(Base):
+    __tablename__ = "contradictions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    investigation_id: Mapped[int] = mapped_column(ForeignKey("investigations.id"), index=True)
+    claim_a_id: Mapped[int] = mapped_column(ForeignKey("evidence_claims.id"), index=True)
+    claim_b_id: Mapped[int] = mapped_column(ForeignKey("evidence_claims.id"), index=True)
+    contradiction_type: Mapped[str] = mapped_column(String(80), index=True)  # AMOUNT_MISMATCH, DATE_ANACHRONISM, AUTHORITY_CONFLICT, STATUS_MISMATCH
+    resolution_status: Mapped[str] = mapped_column(String(40), default="DETECTED", index=True)  # DETECTED, RESOLVED, UNRESOLVED
+    resolution_note: Mapped[str | None] = mapped_column(Text)
+    investigation: Mapped["Investigation"] = relationship(back_populates="contradictions")
+
+
+class ProjectEvent(Base):
+    __tablename__ = "project_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    investigation_id: Mapped[int | None] = mapped_column(ForeignKey("investigations.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(120), index=True)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)  # ANNOUNCED, SANCTION, TENDER_ISSUED, WORK_ORDER, COMMENCED, DELAYED, COMPLETED
+    event_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    value_json: Mapped[str | None] = mapped_column(Text)
+    source_claim_id: Mapped[int | None] = mapped_column(ForeignKey("evidence_claims.id"), index=True)
+    investigation: Mapped["Investigation"] = relationship(back_populates="project_events")
+
+
+class FinancialEvent(Base):
+    __tablename__ = "financial_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    investigation_id: Mapped[int | None] = mapped_column(ForeignKey("investigations.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(120), index=True)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)  # SANCTION, ESTIMATE, AWARD, RELEASE, PAYMENT, EXPENDITURE, COST_ESCALATION
+    amount: Mapped[float] = mapped_column(Float, index=True)
+    currency: Mapped[str] = mapped_column(String(10), default="INR")
+    event_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    source_claim_id: Mapped[int | None] = mapped_column(ForeignKey("evidence_claims.id"), index=True)
+    investigation: Mapped["Investigation"] = relationship(back_populates="financial_events")
+
+
+class RTIApplication(Base):
+    __tablename__ = "rti_applications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    investigation_id: Mapped[int] = mapped_column(ForeignKey("investigations.id"), index=True)
+    authority_name: Mapped[str] = mapped_column(String(300), index=True)
+    authority_id: Mapped[str | None] = mapped_column(String(120))
+    subject: Mapped[str] = mapped_column(String(600))
+    draft_text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(40), default="DRAFT", index=True)  # DRAFT, FINALIZED, SUBMITTED, REPLIED, APPEALED
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    investigation: Mapped["Investigation"] = relationship(back_populates="rti_applications")
+    questions: Mapped[list["RTIQuestion"]] = relationship(back_populates="application", cascade="all, delete-orphan", order_by="RTIQuestion.sequence_no")
+    responses: Mapped[list["RTIResponse"]] = relationship(back_populates="application", cascade="all, delete-orphan")
+
+
+class RTIQuestion(Base):
+    __tablename__ = "rti_questions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rti_application_id: Mapped[int] = mapped_column(ForeignKey("rti_applications.id"), index=True)
+    sequence_no: Mapped[int] = mapped_column(Integer, default=1)
+    gap_id: Mapped[int | None] = mapped_column(ForeignKey("evidence_gaps.id"), index=True)
+    question_text: Mapped[str] = mapped_column(Text)
+    requested_record_type: Mapped[str] = mapped_column(String(120))
+    application: Mapped["RTIApplication"] = relationship(back_populates="questions")
+
+
+class RTIResponse(Base):
+    __tablename__ = "rti_responses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rti_application_id: Mapped[int] = mapped_column(ForeignKey("rti_applications.id"), index=True)
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id"), index=True)
+    received_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    raw_text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    application: Mapped["RTIApplication"] = relationship(back_populates="responses")
+    items: Mapped[list["RTIResponseItem"]] = relationship(back_populates="response", cascade="all, delete-orphan")
+
+
+class RTIResponseItem(Base):
+    __tablename__ = "rti_response_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rti_response_id: Mapped[int] = mapped_column(ForeignKey("rti_responses.id"), index=True)
+    rti_question_id: Mapped[int | None] = mapped_column(ForeignKey("rti_questions.id"), index=True)
+    classification: Mapped[str] = mapped_column(String(40), default="ANSWERED", index=True)  # ANSWERED, PARTIAL, NOT_ANSWERED, DOCUMENT_ATTACHED, TRANSFERRED, EXEMPTION_CITED, UNCLEAR
+    answer_text: Mapped[str] = mapped_column(Text)
+    evidence_json: Mapped[str | None] = mapped_column(Text)
+    response: Mapped["RTIResponse"] = relationship(back_populates="items")
+

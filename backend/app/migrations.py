@@ -48,3 +48,12 @@ def upgrade_development_database(engine):
                     connection.execute(text("ALTER TABLE content_index ADD COLUMN parent_content_id INTEGER"))
                 if "timestamp_seconds" not in columns:
                     connection.execute(text("ALTER TABLE content_index ADD COLUMN timestamp_seconds FLOAT"))
+        if "project_events" in tables:
+            columns = {x["name"] for x in inspector.get_columns("project_events")}
+            if "investigation_id" not in columns:
+                connection.execute(text("ALTER TABLE project_events ADD COLUMN investigation_id INTEGER"))
+        if "financial_events" in tables:
+            columns = {x["name"] for x in inspector.get_columns("financial_events")}
+            if "investigation_id" not in columns:
+                connection.execute(text("ALTER TABLE financial_events ADD COLUMN investigation_id INTEGER"))
+

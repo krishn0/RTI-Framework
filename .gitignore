@@ -1,11 +1,16 @@
 node_modules/
 dist/
 .venv/
+.venv*/
 .deps/
 __pycache__/
 *.pyc
 *.db
+*.db-shm
+*.db-wal
 *.log
 storage/*
 !storage/.gitkeep
+backend/storage/*
+!backend/storage/.gitkeep
 .env
